@@ -102,6 +102,22 @@ validate_environment() {
     fi
     debug "✓ All required tools available"
     
+    # Load loop module if not loaded
+    log "Checking loop device support..."
+    if ! lsmod | grep -q loop; then
+        log "Loading loop module..."
+        modprobe loop || warning "Failed to load loop module (may already be built-in)"
+    fi
+    
+    # Ensure we have loop devices
+    if [ ! -e /dev/loop0 ]; then
+        log "Creating loop devices..."
+        for i in {0..7}; do
+            mknod -m 0660 /dev/loop$i b 7 $i 2>/dev/null || true
+        done
+    fi
+    debug "✓ Loop device support ready"
+    
     # Check if we have enough space for ISO download
     local free_space=$(df -BM "$WORK_DIR" | awk 'NR==2 {print $4}' | sed 's/M//')
     debug "Available space in workspace: ${free_space}MB"
@@ -238,21 +254,29 @@ install_windows() {
     mkdir -p "$MOUNT_ISO"
     mkdir -p "$MOUNT_BOOT"
     
-    log "Mounting Windows ISO..."
-    mount -o loop "$ISO_FILE" "$MOUNT_ISO" || error "Failed to mount ISO"
-    debug "✓ ISO mounted at $MOUNT_ISO"
+    # Check if 7z is available, if not install it
+    if ! command -v 7z &> /dev/null; then
+        log "Installing p7zip for ISO extraction..."
+        apt-get install -y p7zip-full || error "Failed to install p7zip"
+    fi
     
     log "Mounting Windows partition..."
     mount "$windows_part" "$MOUNT_BOOT" || error "Failed to mount Windows partition"
     debug "✓ Windows partition mounted at $MOUNT_BOOT"
     
-    log "Copying Windows installation files..."
-    log "This will take several minutes..."
+    log "Extracting Windows ISO (this may take 10-15 minutes)..."
+    log "Please be patient..."
     
-    # Copy all files from ISO to Windows partition
-    rsync -avh --progress "$MOUNT_ISO/" "$MOUNT_BOOT/" || error "Failed to copy files"
+    # Extract ISO using 7z (doesn't need loop device)
+    7z x "$ISO_FILE" -o"$MOUNT_BOOT" -y > /tmp/7z_extract.log 2>&1 || {
+        error "Failed to extract ISO. Check /tmp/7z_extract.log for details"
+    }
     
-    debug "✓ Files copied successfully"
+    debug "✓ Files extracted successfully"
+    
+    # Show extraction summary
+    local file_count=$(find "$MOUNT_BOOT" -type f | wc -l)
+    debug "Extracted $file_count files"
     
     log "Setting up EFI bootloader..."
     mkdir -p /mnt/efi
@@ -260,15 +284,29 @@ install_windows() {
     
     # Copy EFI bootloader
     mkdir -p /mnt/efi/EFI/Boot
-    cp "$MOUNT_ISO/efi/boot/bootx64.efi" /mnt/efi/EFI/Boot/ 2>/dev/null || \
-    cp "$MOUNT_BOOT/efi/boot/bootx64.efi" /mnt/efi/EFI/Boot/ || \
-    warning "Could not copy bootx64.efi - Windows installer may handle this"
+    
+    # Try different possible locations for bootx64.efi
+    if [ -f "$MOUNT_BOOT/efi/boot/bootx64.efi" ]; then
+        cp "$MOUNT_BOOT/efi/boot/bootx64.efi" /mnt/efi/EFI/Boot/ || warning "Failed to copy bootx64.efi"
+    elif [ -f "$MOUNT_BOOT/EFI/BOOT/BOOTX64.EFI" ]; then
+        cp "$MOUNT_BOOT/EFI/BOOT/BOOTX64.EFI" /mnt/efi/EFI/Boot/bootx64.efi || warning "Failed to copy bootx64.efi"
+    else
+        warning "bootx64.efi not found - searching..."
+        find "$MOUNT_BOOT" -iname "bootx64.efi" -exec cp {} /mnt/efi/EFI/Boot/ \; 2>/dev/null || \
+        warning "Could not find bootx64.efi - Windows installer may handle this"
+    fi
+    
+    # Also copy Microsoft bootloader if exists
+    if [ -d "$MOUNT_BOOT/efi/microsoft" ]; then
+        cp -r "$MOUNT_BOOT/efi/microsoft" /mnt/efi/EFI/ 2>/dev/null || true
+    elif [ -d "$MOUNT_BOOT/EFI/Microsoft" ]; then
+        cp -r "$MOUNT_BOOT/EFI/Microsoft" /mnt/efi/EFI/ 2>/dev/null || true
+    fi
     
     debug "Boot files:"
-    ls -lh /mnt/efi/EFI/Boot/ 2>/dev/null || echo "No boot files yet"
+    ls -lhR /mnt/efi/EFI/ 2>/dev/null || echo "No boot files yet"
     
     log "Cleaning up..."
-    umount "$MOUNT_ISO"
     umount "$MOUNT_BOOT"
     umount /mnt/efi
     
