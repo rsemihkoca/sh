@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Create sdb4 (6GB) by shrinking sdb3
+# Create sdb4 (12GB) by shrinking sdb3
 
 set -e
 
@@ -24,11 +24,11 @@ umount /dev/sdb3 2>/dev/null || true
 log "Deleting sdb3..."
 parted -s /dev/sdb rm 3
 
-log "Creating new sdb3 (68.5GB)..."
-parted -s /dev/sdb mkpart primary ntfs 517MiB 69029MiB
+log "Creating new sdb3 (62.5GB)..."
+parted -s /dev/sdb mkpart primary ntfs 517MiB 63989MiB
 
-log "Creating sdb4 (6GB)..."
-parted -s /dev/sdb mkpart primary ext4 69029MiB 75173MiB
+log "Creating sdb4 (12GB)..."
+parted -s /dev/sdb mkpart primary ext4 63989MiB 76277MiB
 
 log "Waiting for kernel to recognize partitions..."
 sleep 2
@@ -42,7 +42,7 @@ fdisk -l /dev/sdb
 log "Formatting sdb4 as ext4..."
 mkfs.ext4 -L "TEMP" /dev/sdb4
 
-log "✓ Done! sdb4 (6GB) created and formatted"
+log "✓ Done! sdb4 (12GB) created and formatted"
 echo ""
-log "sdb3: 68.5GB (for Windows)"
-log "sdb4: 6GB (for temporary ISO download)"
+log "sdb3: 62.5GB (for Windows)"
+log "sdb4: 12GB (for temporary ISO download)"
