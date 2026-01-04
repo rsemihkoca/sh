@@ -62,7 +62,18 @@ if ! command -v wimlib-imagex &>/dev/null; then
 fi
 log_success "wimlib-imagex mevcut"
 
-# 5. boot.wim yedekle
+# 5. Disk alanı kontrolü
+log_info "Disk alanı kontrol ediliyor..."
+available_space=$(df -m /mnt | awk 'NR==2 {print $4}')
+required_space=3000  # 3GB minimum (extract için)
+
+if [ $available_space -lt $required_space ]; then
+    log_error "Yetersiz disk alanı! Mevcut: ${available_space}MB, Gerekli: ${required_space}MB"
+    exit 1
+fi
+log_success "Disk alanı yeterli: ${available_space}MB"
+
+# 6. boot.wim yedekle
 log_info "boot.wim yedekleniyor..."
 if [ ! -f sources/boot.wim.backup ]; then
     cp sources/boot.wim sources/boot.wim.backup
@@ -71,9 +82,9 @@ else
     log_warning "Yedek zaten mevcut, atlanıyor"
 fi
 
-# 6. Çalışma dizini temizle ve oluştur
+# 7. Çalışma dizini (/mnt içinde!)
 log_info "Çalışma dizini hazırlanıyor..."
-WORK_DIR="/tmp/wim_work"
+WORK_DIR="/mnt/.wim_work"
 if [ -d "$WORK_DIR" ]; then
     log_warning "$WORK_DIR zaten mevcut, temizleniyor..."
     rm -rf "$WORK_DIR"
@@ -81,20 +92,20 @@ fi
 mkdir -p "$WORK_DIR"
 log_success "Çalışma dizini hazır: $WORK_DIR"
 
-# 7. boot.wim'i extract et (Index 2 = Windows Setup)
+# 8. boot.wim'i extract et (Index 2 = Windows Setup)
 log_info "boot.wim extract ediliyor (bu 1-2 dakika sürebilir)..."
-wimlib-imagex apply sources/boot.wim 2 "$WORK_DIR" || {
+wimlib-imagex apply sources/boot.wim 2 "$WORK_DIR" --no-acls --no-attributes || {
     log_error "boot.wim extract edilemedi!"
     exit 1
 }
 log_success "boot.wim extract edildi"
 
-# 8. Driver dizini oluştur
+# 9. Driver dizini oluştur
 log_info "Driver dizini oluşturuluyor..."
 mkdir -p "$WORK_DIR/drivers"
 log_success "Driver dizini hazır"
 
-# 9. viostor driver kopyala
+# 10. viostor driver kopyala
 log_info "viostor (disk) driver'ı kopyalanıyor..."
 cp -v Drivers/viostor/w10/amd64/* "$WORK_DIR/drivers/" || {
     log_error "viostor dosyaları kopyalanamadı!"
@@ -103,7 +114,7 @@ cp -v Drivers/viostor/w10/amd64/* "$WORK_DIR/drivers/" || {
 viostor_count=$(ls "$WORK_DIR/drivers/viostor"* 2>/dev/null | wc -l)
 log_success "viostor driver kopyalandı (${viostor_count} dosya)"
 
-# 10. NetKVM driver kopyala (opsiyonel)
+# 11. NetKVM driver kopyala (opsiyonel)
 if [ -d Drivers/NetKVM/w10/amd64 ]; then
     log_info "NetKVM (network) driver'ı kopyalanıyor..."
     cp -v Drivers/NetKVM/w10/amd64/* "$WORK_DIR/drivers/" 2>/dev/null || true
@@ -115,11 +126,11 @@ if [ -d Drivers/NetKVM/w10/amd64 ]; then
     fi
 fi
 
-# 11. Kopyalanan dosyaları listele
+# 12. Kopyalanan dosyaları listele
 log_info "Kopyalanan driver dosyaları:"
 ls -lh "$WORK_DIR/drivers/"
 
-# 12. Yeni boot.wim oluştur
+# 13. Yeni boot.wim oluştur
 log_info "Yeni boot.wim oluşturuluyor (bu 2-3 dakika sürebilir)..."
 
 # Önce eski Index 1'i kopyala (değişmeden)
@@ -137,24 +148,24 @@ wimlib-imagex capture "$WORK_DIR" sources/boot.wim.new "Microsoft Windows Setup 
 
 log_success "Yeni boot.wim oluşturuldu"
 
-# 13. Eski boot.wim'i değiştir
+# 14. Eski boot.wim'i değiştir
 log_info "boot.wim değiştiriliyor..."
 mv sources/boot.wim sources/boot.wim.old
 mv sources/boot.wim.new sources/boot.wim
 log_success "boot.wim başarıyla değiştirildi"
 
-# 14. Temizlik
+# 15. Temizlik
 log_info "Geçici dizin temizleniyor..."
 rm -rf "$WORK_DIR"
 rm -f sources/boot.wim.old
 log_success "Temizlik tamamlandı"
 
-# 15. boot.wim boyutu kontrol
+# 16. boot.wim boyutu kontrol
 new_size=$(stat -c%s sources/boot.wim 2>/dev/null)
 new_mb=$((new_size / 1024 / 1024))
 log_success "boot.wim boyutu: ${new_mb}MB"
 
-# 16. Özet
+# 17. Özet
 echo ""
 echo "================================================"
 log_success "DRIVER ENTEGRASYONU TAMAMLANDI!"
