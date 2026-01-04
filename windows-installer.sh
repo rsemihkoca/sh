@@ -61,22 +61,22 @@ validate_environment() {
     local available_space=$(df -BG /dev/sdb2 2>/dev/null | awk 'NR==2 {print $4}' | sed 's/G//' || echo "0")
     debug "Available space on sdb2: ${available_space}G"
     
-    # Create workspace on sdb2 (has write permissions)
-    log "Preparing workspace on /dev/sdb2..."
+    # Create workspace on sdb3 (has write permissions)
+    log "Preparing workspace on /dev/sdb3..."
     
     # Create mount point
-    mkdir -p /mnt/sdb2
+    mkdir -p /mnt/sdb3
     
-    # Check if sdb2 is already mounted
-    if mountpoint -q /mnt/sdb2; then
-        log "/dev/sdb2 already mounted"
+    # Check if sdb3 is already mounted
+    if mountpoint -q /mnt/sdb3; then
+        log "/dev/sdb3 already mounted"
     else
-        log "Mounting /dev/sdb2..."
-        mount /dev/sdb2 /mnt/sdb2 || error "Failed to mount /dev/sdb2"
+        log "Mounting /dev/sdb3..."
+        mount /dev/sdb3 /mnt/sdb3 || error "Failed to mount /dev/sdb3"
     fi
     
-    # Set workspace to sdb2
-    WORK_DIR="/mnt/sdb2/workspace"
+    # Set workspace to sdb3
+    WORK_DIR="/mnt/sdb3/workspace"
     ISO_FILE="$WORK_DIR/windows10.iso"
     MOUNT_ISO="$WORK_DIR/iso_mount"
     MOUNT_BOOT="$WORK_DIR/boot_mount"
