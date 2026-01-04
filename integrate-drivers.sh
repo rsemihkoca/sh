@@ -1,6 +1,6 @@
 #!/bin/bash
-# OVHcloud VPS Windows 10 - VirtIO Driver Entegrasyonu
-# Kullanım: sudo bash integrate-drivers.sh
+# OVHcloud VPS Windows 10 - VirtIO Driver Entegrasyonu (Fixed)
+# Kullanım: bash integrate-drivers.sh
 
 set -e
 
@@ -32,15 +32,14 @@ log_success "Root yetkisi OK"
 # 2. /mnt mount kontrolü
 log_info "Mount durumu kontrol ediliyor..."
 if ! mountpoint -q /mnt; then
-    log_error "/mnt mount edilmemiş! Önce mount edin:"
-    echo "  sudo mount /dev/sdXN /mnt  # OVH disk cihazınıza göre değiştirin"
+    log_error "/mnt mount edilmemiş!"
     exit 1
 fi
 log_success "/mnt mount edilmiş"
 
 # 3. Gerekli dosyaları kontrol et
 log_info "Gerekli dosyalar kontrol ediliyor..."
-cd /mnt || { log_error "cd /mnt başarısız"; exit 1; }
+cd /mnt || exit 1
 
 if [ ! -f sources/boot.wim ]; then
     log_error "sources/boot.wim bulunamadı!"
@@ -52,17 +51,12 @@ if [ ! -d Drivers/viostor/w10/amd64 ]; then
     exit 1
 fi
 
-if [ ! -d Drivers/NetKVM/w10/amd64 ]; then
-    log_warning "Drivers/NetKVM/w10/amd64 bulunamadı! Network driver entegrasyonu atlanacak."
-fi
-
 log_success "Tüm gerekli dosyalar mevcut"
 
 # 4. wimlib-imagex kontrolü
-log_info "wimlib-imagex kontrol ediliyor..."
+log_info "wimlib-imagex kontrolü..."
 if ! command -v wimlib-imagex &>/dev/null; then
-    log_error "wimlib-imagex yüklü değil! Ubuntu/Debian için:"
-    echo "  sudo apt update && sudo apt install wimtools -y"
+    log_error "wimlib-imagex yüklü değil!"
     exit 1
 fi
 log_success "wimlib-imagex mevcut"
@@ -76,11 +70,7 @@ else
     log_warning "Yedek zaten mevcut, atlanıyor"
 fi
 
-# 6. boot.wim bilgilerini al
-log_info "boot.wim içeriği kontrol ediliyor..."
-wimlib-imagex info sources/boot.wim
-
-# 7. Mount dizini oluştur
+# 6. Mount dizini temizle
 log_info "Mount dizini hazırlanıyor..."
 if [ -d /tmp/boot ]; then
     log_warning "/tmp/boot zaten mevcut, temizleniyor..."
@@ -90,17 +80,24 @@ fi
 mkdir -p /tmp/boot
 log_success "Mount dizini hazır: /tmp/boot"
 
-# 8. boot.wim mount et (index 2 = Windows Setup)
-log_info "boot.wim mount ediliyor..."
-wimlib-imagex mount sources/boot.wim 2 /tmp/boot || { log_error "boot.wim mount edilemedi!"; exit 1; }
+# 7. boot.wim mount et (--unix-data ile yazılabilir)
+log_info "boot.wim mount ediliyor (yazılabilir modda)..."
+wimlib-imagex mount sources/boot.wim 2 /tmp/boot --unix-data || {
+    log_error "boot.wim mount edilemedi!"
+    exit 1
+}
 log_success "boot.wim mount edildi"
 
-# 9. Driver dizini oluştur
+# 8. Driver dizini oluştur
 log_info "Driver dizini oluşturuluyor..."
-mkdir -p /tmp/boot/drivers
+mkdir -p /tmp/boot/drivers || {
+    log_error "Driver dizini oluşturulamadı!"
+    wimlib-imagex unmount /tmp/boot
+    exit 1
+}
 log_success "Driver dizini hazır"
 
-# 10. viostor driver kopyala
+# 9. viostor driver kopyala
 log_info "viostor (disk) driver'ı kopyalanıyor..."
 cp -v Drivers/viostor/w10/amd64/* /tmp/boot/drivers/ 2>/dev/null || true
 viostor_count=$(ls /tmp/boot/drivers/viostor* 2>/dev/null | wc -l)
@@ -111,40 +108,41 @@ if [ $viostor_count -eq 0 ]; then
 fi
 log_success "viostor driver kopyalandı (${viostor_count} dosya)"
 
-# 11. NetKVM driver kopyala (opsiyonel)
+# 10. NetKVM driver kopyala (opsiyonel)
 if [ -d Drivers/NetKVM/w10/amd64 ]; then
     log_info "NetKVM (network) driver'ı kopyalanıyor..."
     cp -v Drivers/NetKVM/w10/amd64/* /tmp/boot/drivers/ 2>/dev/null || true
-    netkvm_count=$(ls /tmp/boot/drivers/*netkvm* 2>/dev/null | wc -l)
+    netkvm_count=$(ls /tmp/boot/drivers/*netkvm* /tmp/boot/drivers/*NetKVM* 2>/dev/null | wc -l)
     if [ $netkvm_count -eq 0 ]; then
         log_warning "NetKVM dosyaları kopyalanamadı (opsiyonel)"
     else
         log_success "NetKVM driver kopyalandı (${netkvm_count} dosya)"
     fi
-else
-    log_warning "NetKVM driver dizini bulunamadı, atlanıyor"
 fi
 
-# 12. Kopyalanan dosyaları listele
+# 11. Kopyalanan dosyaları listele
 log_info "Kopyalanan driver dosyaları:"
 ls -lh /tmp/boot/drivers/
 
-# 13. boot.wim commit
-log_info "boot.wim kaydediliyor..."
-wimlib-imagex unmount /tmp/boot --commit || { log_error "boot.wim unmount/commit başarısız!"; exit 1; }
+# 12. boot.wim commit
+log_info "boot.wim kaydediliyor (bu 2-3 dakika sürebilir)..."
+wimlib-imagex unmount /tmp/boot --commit || {
+    log_error "boot.wim unmount/commit başarısız!"
+    exit 1
+}
 log_success "boot.wim başarıyla kaydedildi"
 
-# 14. Mount dizinini temizle
+# 13. Mount dizinini temizle
 log_info "Geçici dizin temizleniyor..."
 rm -rf /tmp/boot
 log_success "Temizlik tamamlandı"
 
-# 15. boot.wim boyutu kontrol
+# 14. boot.wim boyutu kontrol
 new_size=$(stat -c%s sources/boot.wim 2>/dev/null)
 new_mb=$((new_size / 1024 / 1024))
 log_success "boot.wim boyutu: ${new_mb}MB"
 
-# 16. Özet
+# 15. Özet
 echo ""
 echo "================================================"
 log_success "DRIVER ENTEGRASYONU TAMAMLANDI!"
@@ -152,7 +150,7 @@ echo "================================================"
 echo ""
 echo "Entegre edilen driver'lar:"
 echo "  ✓ VirtIO viostor (disk controller)"
-[ $netkvm_count -gt 0 ] && echo "  ✓ VirtIO NetKVM (network)"
+[ "${netkvm_count:-0}" -gt 0 ] && echo "  ✓ VirtIO NetKVM (network)"
 echo ""
 echo "boot.wim güncellendi: ${new_mb}MB"
 echo "Yedek mevcut: sources/boot.wim.backup"
