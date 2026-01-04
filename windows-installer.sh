@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Windows 10 Installation - Final Version
-# Uses sdb4 (6GB) for temporary ISO storage
+# Uses sda4 (6GB) for temporary ISO storage
 # GitHub: https://github.com/rsemihkoca/sh
 
 set -e
@@ -14,7 +14,7 @@ NC='\033[0m'
 
 ISO_URL="https://software.download.prss.microsoft.com/dbazure/Win10_22H2_English_x64v1.iso?t=781f2471-b77c-4638-b68b-7f0e243fa0f7&P1=1767636764&P2=601&P3=2&P4=xvhom209oOzLuLZR2xxcAhCA3NtLdn5QySZ0a051geiXPtw01Ld7HqdQgV8KqKCpKSRq5GcRmLWXzZj4S0F5X5aoIr0UVf6WXljjaGjMT09EUcINyjquY6KOmJ3%2bhxWaiROuToGno9YfxJDvLteh4h%2bo0BIrcgjJ8sbCme9B5n3VnWSOT1gHe%2fAFwLCAxp7qbn7%2fyjwFCS85tWEIzKtnUOUH8L13Y8Eq55P5kn3WfGaEGbto0P35%2b54mRGJnFP9GStR5qFKI5wLYFfVKvKoM5gT4%2fsICaBrqn4kLPX0mPfzJG3W0ALMvtFXGpZjqpNkgzZLtTdHwM2jgO9yuXicxTQ%3d%3d"
 
-TARGET_DISK="/dev/sdb"
+TARGET_DISK="/dev/sda"
 
 log() { echo -e "${GREEN}[$(date +'%H:%M:%S')]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
@@ -39,7 +39,7 @@ main() {
     
     [ "$EUID" -ne 0 ] && error "Must run as root"
     [ ! -b "$TARGET_DISK" ] && error "$TARGET_DISK not found"
-    [ ! -b "${TARGET_DISK}4" ] && error "sdb4 not found - run create_sdb4.sh first"
+    [ ! -b "${TARGET_DISK}4" ] && error "sda4 not found - run create_sda4.sh first"
     
     info "Current disk layout:"
     lsblk
@@ -55,48 +55,48 @@ main() {
     info "✓ Tools installed"
     
     # ============================================
-    # STEP 3: Mount sdb4 for temporary storage
+    # STEP 3: Mount sda4 for temporary storage
     # ============================================
-    log "Step 3: Preparing temporary workspace on sdb4"
+    log "Step 3: Preparing temporary workspace on sda4"
     
     mkdir -p /mnt/temp
     
     # Check if already mounted
     if mountpoint -q /mnt/temp; then
-        info "sdb4 already mounted"
+        info "sda4 already mounted"
     else
         mount "${TARGET_DISK}4" /mnt/temp 2>/dev/null || {
-            warning "sdb4 not formatted, formatting now..."
+            warning "sda4 not formatted, formatting now..."
             mkfs.ext4 -L "TEMP" "${TARGET_DISK}4"
             mount "${TARGET_DISK}4" /mnt/temp
         }
     fi
     
-    info "Mounted sdb4 at /mnt/temp"
+    info "Mounted sda4 at /mnt/temp"
     df -h /mnt/temp
     echo ""
     
-    # Check if sdb4 has enough space
+    # Check if sda4 has enough space
     local available_space=$(df -BM /mnt/temp | awk 'NR==2 {print $4}' | sed 's/M//')
-    info "Available space on sdb4: ${available_space}MB"
+    info "Available space on sda4: ${available_space}MB"
     
     if [ "$available_space" -lt 5500 ]; then
-        warning "sdb4 is full or nearly full!"
+        warning "sda4 is full or nearly full!"
         warning "Cleaning up old files..."
         
         info "Current contents:"
         du -sh /mnt/temp/* 2>/dev/null || echo "Empty or no permission"
         
-        read -p "Delete all files on sdb4? (yes/NO): " confirm
+        read -p "Delete all files on sda4? (yes/NO): " confirm
         if [ "$confirm" = "yes" ]; then
             rm -rf /mnt/temp/*
-            info "✓ sdb4 cleaned"
+            info "✓ sda4 cleaned"
             df -h /mnt/temp
         else
-            error "Not enough space on sdb4. Clean manually or type 'yes'"
+            error "Not enough space on sda4. Clean manually or type 'yes'"
         fi
     else
-        info "✓ sdb4 has enough space"
+        info "✓ sda4 has enough space"
     fi
     echo ""
     
@@ -124,7 +124,7 @@ main() {
     fi
     
     if [ ! -f "$ISO_FILE" ]; then
-        info "Downloading ~5.7GB to sdb4..."
+        info "Downloading ~5.7GB to sda4..."
         info "This will take 5-15 minutes"
         echo ""
         
@@ -165,23 +165,23 @@ main() {
     echo ""
     
     # ============================================
-    # STEP 6: Format Windows partition (sdb3)
+    # STEP 6: Format Windows partition (sda3)
     # ============================================
     log "Step 6: Formatting Windows partition"
     
     umount "${TARGET_DISK}3" 2>/dev/null || true
     
-    info "Formatting sdb3 as NTFS..."
+    info "Formatting sda3 as NTFS..."
     mkfs.ntfs -f -L "Windows" "${TARGET_DISK}3" || error "Format failed"
-    info "✓ sdb3 formatted as NTFS"
+    info "✓ sda3 formatted as NTFS"
     
-    # Format EFI partition (sdb1)
-    info "Formatting sdb1 as FAT32..."
+    # Format EFI partition (sda1)
+    info "Formatting sda1 as FAT32..."
     mkfs.fat -F32 -n "SYSTEM" "${TARGET_DISK}1" || error "EFI format failed"
-    info "✓ sdb1 formatted as FAT32"
+    info "✓ sda1 formatted as FAT32"
     
     info "Partition status:"
-    blkid | grep sdb
+    blkid | grep sda
     echo ""
     
     # ============================================
@@ -190,13 +190,13 @@ main() {
     log "Step 7: Copying files to Windows partition"
     
     mkdir -p /mnt/win
-    mount "${TARGET_DISK}3" /mnt/win || error "Failed to mount sdb3"
+    mount "${TARGET_DISK}3" /mnt/win || error "Failed to mount sda3"
     
-    info "Mounted sdb3 at /mnt/win"
+    info "Mounted sda3 at /mnt/win"
     df -h /mnt/win
     echo ""
     
-    info "Copying files from sdb4 to sdb3..."
+    info "Copying files from sda4 to sda3..."
     info "This will take 10-15 minutes"
     echo ""
     
@@ -272,7 +272,7 @@ main() {
     # ============================================
     log "Step 9: Cleaning up temporary files"
     
-    info "Removing ISO and extracted files from sdb4..."
+    info "Removing ISO and extracted files from sda4..."
     rm -f "$ISO_FILE"
     rm -rf "$EXTRACT_DIR"
     
@@ -281,25 +281,25 @@ main() {
     
     info "✓ Temporary files cleaned"
     
-    # ============================================
-    # STEP 10: Delete sdb4 and expand sdb3
-    # ============================================
-    log "Step 10: Reclaiming space from sdb4"
+    # # ============================================
+    # # STEP 10: Delete sda4 and expand sda3
+    # # ============================================
+    # log "Step 10: Reclaiming space from sda4"
     
-    info "Deleting sdb4..."
-    parted -s "$TARGET_DISK" rm 4
+    # info "Deleting sda4..."
+    # parted -s "$TARGET_DISK" rm 4
     
-    info "Expanding sdb3 to use all available space..."
-    parted -s "$TARGET_DISK" resizepart 3 100%
+    # info "Expanding sda3 to use all available space..."
+    # parted -s "$TARGET_DISK" resizepart 3 100%
     
-    sleep 2
-    partprobe "$TARGET_DISK"
-    sleep 2
+    # sleep 2
+    # partprobe "$TARGET_DISK"
+    # sleep 2
     
-    info "Expanding NTFS filesystem..."
-    ntfsresize -f "${TARGET_DISK}3" || warning "NTFS resize failed (may need Windows to do it)"
+    # info "Expanding NTFS filesystem..."
+    # ntfsresize -f "${TARGET_DISK}3" || warning "NTFS resize failed (may need Windows to do it)"
     
-    info "✓ sdb4 removed, sdb3 expanded"
+    # info "✓ sda4 removed, sda3 expanded"
     
     # ============================================
     # STEP 11: Final verification
@@ -311,7 +311,7 @@ main() {
     echo ""
     
     info "Partition info:"
-    blkid | grep sdb
+    blkid | grep sda
     echo ""
     
     # Quick file check
@@ -350,9 +350,9 @@ main() {
     info "Windows 10 is ready to boot on $TARGET_DISK"
     echo ""
     log "Partition layout:"
-    info "  sdb1 (500M)  - EFI System (FAT32)"
-    info "  sdb2 (16M)   - MSR"
-    info "  sdb3 (74.5G) - Windows (NTFS)"
+    info "  sda1 (500M)  - EFI System (FAT32)"
+    info "  sda2 (16M)   - MSR"
+    info "  sda3 (74.5G) - Windows (NTFS)"
     echo ""
     log "Next steps:"
     echo "  1. Go to OVHcloud control panel"
