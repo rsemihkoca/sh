@@ -1,5 +1,5 @@
 #!/bin/bash
-# OVHcloud VPS Windows 10 - VirtIO Driver Entegrasyonu (Fixed)
+# OVHcloud VPS Windows 10 - VirtIO Driver Entegrasyonu (Extract/Rebuild Method)
 # Kullanım: bash integrate-drivers.sh
 
 set -e
@@ -18,6 +18,7 @@ log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 
 echo "================================================"
 echo "  VirtIO Driver Entegrasyonu - boot.wim"
+echo "  (Extract/Rebuild Method)"
 echo "================================================"
 echo ""
 
@@ -70,79 +71,90 @@ else
     log_warning "Yedek zaten mevcut, atlanıyor"
 fi
 
-# 6. Mount dizini temizle
-log_info "Mount dizini hazırlanıyor..."
-if [ -d /tmp/boot ]; then
-    log_warning "/tmp/boot zaten mevcut, temizleniyor..."
-    wimlib-imagex unmount /tmp/boot 2>/dev/null || true
-    rm -rf /tmp/boot
+# 6. Çalışma dizini temizle ve oluştur
+log_info "Çalışma dizini hazırlanıyor..."
+WORK_DIR="/tmp/wim_work"
+if [ -d "$WORK_DIR" ]; then
+    log_warning "$WORK_DIR zaten mevcut, temizleniyor..."
+    rm -rf "$WORK_DIR"
 fi
-mkdir -p /tmp/boot
-log_success "Mount dizini hazır: /tmp/boot"
+mkdir -p "$WORK_DIR"
+log_success "Çalışma dizini hazır: $WORK_DIR"
 
-# 7. boot.wim mount et (--unix-data ile yazılabilir)
-log_info "boot.wim mount ediliyor (yazılabilir modda)..."
-wimlib-imagex mount sources/boot.wim 2 /tmp/boot --unix-data || {
-    log_error "boot.wim mount edilemedi!"
+# 7. boot.wim'i extract et (Index 2 = Windows Setup)
+log_info "boot.wim extract ediliyor (bu 1-2 dakika sürebilir)..."
+wimlib-imagex apply sources/boot.wim 2 "$WORK_DIR" || {
+    log_error "boot.wim extract edilemedi!"
     exit 1
 }
-log_success "boot.wim mount edildi"
+log_success "boot.wim extract edildi"
 
 # 8. Driver dizini oluştur
 log_info "Driver dizini oluşturuluyor..."
-mkdir -p /tmp/boot/drivers || {
-    log_error "Driver dizini oluşturulamadı!"
-    wimlib-imagex unmount /tmp/boot
-    exit 1
-}
+mkdir -p "$WORK_DIR/drivers"
 log_success "Driver dizini hazır"
 
 # 9. viostor driver kopyala
 log_info "viostor (disk) driver'ı kopyalanıyor..."
-cp -v Drivers/viostor/w10/amd64/* /tmp/boot/drivers/ 2>/dev/null || true
-viostor_count=$(ls /tmp/boot/drivers/viostor* 2>/dev/null | wc -l)
-if [ $viostor_count -eq 0 ]; then
+cp -v Drivers/viostor/w10/amd64/* "$WORK_DIR/drivers/" || {
     log_error "viostor dosyaları kopyalanamadı!"
-    wimlib-imagex unmount /tmp/boot
     exit 1
-fi
+}
+viostor_count=$(ls "$WORK_DIR/drivers/viostor"* 2>/dev/null | wc -l)
 log_success "viostor driver kopyalandı (${viostor_count} dosya)"
 
 # 10. NetKVM driver kopyala (opsiyonel)
 if [ -d Drivers/NetKVM/w10/amd64 ]; then
     log_info "NetKVM (network) driver'ı kopyalanıyor..."
-    cp -v Drivers/NetKVM/w10/amd64/* /tmp/boot/drivers/ 2>/dev/null || true
-    netkvm_count=$(ls /tmp/boot/drivers/*netkvm* /tmp/boot/drivers/*NetKVM* 2>/dev/null | wc -l)
-    if [ $netkvm_count -eq 0 ]; then
-        log_warning "NetKVM dosyaları kopyalanamadı (opsiyonel)"
-    else
+    cp -v Drivers/NetKVM/w10/amd64/* "$WORK_DIR/drivers/" 2>/dev/null || true
+    netkvm_count=$(ls "$WORK_DIR/drivers/"*netkvm* "$WORK_DIR/drivers/"*NetKVM* 2>/dev/null | wc -l)
+    if [ $netkvm_count -gt 0 ]; then
         log_success "NetKVM driver kopyalandı (${netkvm_count} dosya)"
+    else
+        log_warning "NetKVM dosyaları kopyalanamadı (opsiyonel)"
     fi
 fi
 
 # 11. Kopyalanan dosyaları listele
 log_info "Kopyalanan driver dosyaları:"
-ls -lh /tmp/boot/drivers/
+ls -lh "$WORK_DIR/drivers/"
 
-# 12. boot.wim commit
-log_info "boot.wim kaydediliyor (bu 2-3 dakika sürebilir)..."
-wimlib-imagex unmount /tmp/boot --commit || {
-    log_error "boot.wim unmount/commit başarısız!"
+# 12. Yeni boot.wim oluştur
+log_info "Yeni boot.wim oluşturuluyor (bu 2-3 dakika sürebilir)..."
+
+# Önce eski Index 1'i kopyala (değişmeden)
+wimlib-imagex export sources/boot.wim.backup 1 sources/boot.wim.new "Microsoft Windows PE (x64)" || {
+    log_error "Index 1 export edilemedi!"
     exit 1
 }
-log_success "boot.wim başarıyla kaydedildi"
 
-# 13. Mount dizinini temizle
+# Sonra yeni Index 2'yi ekle (driver'lı)
+wimlib-imagex capture "$WORK_DIR" sources/boot.wim.new "Microsoft Windows Setup (x64)" \
+    --compress=LZX --chunk-size=32768 --boot || {
+    log_error "Index 2 capture edilemedi!"
+    exit 1
+}
+
+log_success "Yeni boot.wim oluşturuldu"
+
+# 13. Eski boot.wim'i değiştir
+log_info "boot.wim değiştiriliyor..."
+mv sources/boot.wim sources/boot.wim.old
+mv sources/boot.wim.new sources/boot.wim
+log_success "boot.wim başarıyla değiştirildi"
+
+# 14. Temizlik
 log_info "Geçici dizin temizleniyor..."
-rm -rf /tmp/boot
+rm -rf "$WORK_DIR"
+rm -f sources/boot.wim.old
 log_success "Temizlik tamamlandı"
 
-# 14. boot.wim boyutu kontrol
+# 15. boot.wim boyutu kontrol
 new_size=$(stat -c%s sources/boot.wim 2>/dev/null)
 new_mb=$((new_size / 1024 / 1024))
 log_success "boot.wim boyutu: ${new_mb}MB"
 
-# 15. Özet
+# 16. Özet
 echo ""
 echo "================================================"
 log_success "DRIVER ENTEGRASYONU TAMAMLANDI!"
