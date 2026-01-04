@@ -62,16 +62,26 @@ validate_environment() {
     debug "Available space on sdb2: ${available_space}G"
     
     # Create workspace on sdb2 (has write permissions)
-    if [ ! -d "$WORK_DIR" ]; then
-        log "Creating workspace directory..."
-        mkdir -p "$WORK_DIR" || {
-            # Try mounting sdb2 first
-            log "Mounting /dev/sdb2 to workspace..."
-            mount /dev/sdb2 /mnt 2>/dev/null || true
-            mkdir -p /mnt/workspace
-            WORK_DIR="/mnt/workspace"
-        }
+    log "Preparing workspace on /dev/sdb2..."
+    
+    # Create mount point
+    mkdir -p /mnt/sdb2
+    
+    # Check if sdb2 is already mounted
+    if mountpoint -q /mnt/sdb2; then
+        log "/dev/sdb2 already mounted"
+    else
+        log "Mounting /dev/sdb2..."
+        mount /dev/sdb2 /mnt/sdb2 || error "Failed to mount /dev/sdb2"
     fi
+    
+    # Set workspace to sdb2
+    WORK_DIR="/mnt/sdb2/workspace"
+    ISO_FILE="$WORK_DIR/windows10.iso"
+    MOUNT_ISO="$WORK_DIR/iso_mount"
+    MOUNT_BOOT="$WORK_DIR/boot_mount"
+    
+    mkdir -p "$WORK_DIR"
     debug "✓ Workspace created: $WORK_DIR"
     
     # Update required tools check
@@ -94,6 +104,8 @@ validate_environment() {
     
     # Check if we have enough space for ISO download
     local free_space=$(df -BM "$WORK_DIR" | awk 'NR==2 {print $4}' | sed 's/M//')
+    debug "Available space in workspace: ${free_space}MB"
+    
     if [ "$free_space" -lt 6000 ]; then
         error "Not enough space in $WORK_DIR. Need at least 6GB, have ${free_space}MB"
     fi
