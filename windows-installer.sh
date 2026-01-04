@@ -60,14 +60,44 @@ main() {
     log "Step 3: Preparing temporary workspace on sdb4"
     
     mkdir -p /mnt/temp
-    mount "${TARGET_DISK}4" /mnt/temp 2>/dev/null || {
-        warning "sdb4 not formatted, formatting now..."
-        mkfs.ext4 -L "TEMP" "${TARGET_DISK}4"
-        mount "${TARGET_DISK}4" /mnt/temp
-    }
+    
+    # Check if already mounted
+    if mountpoint -q /mnt/temp; then
+        info "sdb4 already mounted"
+    else
+        mount "${TARGET_DISK}4" /mnt/temp 2>/dev/null || {
+            warning "sdb4 not formatted, formatting now..."
+            mkfs.ext4 -L "TEMP" "${TARGET_DISK}4"
+            mount "${TARGET_DISK}4" /mnt/temp
+        }
+    fi
     
     info "Mounted sdb4 at /mnt/temp"
     df -h /mnt/temp
+    echo ""
+    
+    # Check if sdb4 has enough space
+    local available_space=$(df -BM /mnt/temp | awk 'NR==2 {print $4}' | sed 's/M//')
+    info "Available space on sdb4: ${available_space}MB"
+    
+    if [ "$available_space" -lt 5500 ]; then
+        warning "sdb4 is full or nearly full!"
+        warning "Cleaning up old files..."
+        
+        info "Current contents:"
+        du -sh /mnt/temp/* 2>/dev/null || echo "Empty or no permission"
+        
+        read -p "Delete all files on sdb4? (yes/NO): " confirm
+        if [ "$confirm" = "yes" ]; then
+            rm -rf /mnt/temp/*
+            info "✓ sdb4 cleaned"
+            df -h /mnt/temp
+        else
+            error "Not enough space on sdb4. Clean manually or type 'yes'"
+        fi
+    else
+        info "✓ sdb4 has enough space"
+    fi
     echo ""
     
     ISO_FILE="/mnt/temp/windows10.iso"
